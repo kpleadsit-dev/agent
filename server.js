@@ -10,48 +10,20 @@ const PROXY_PORT = 6361;
 const PROXY_USER = 'lswyimcd';
 const PROXY_PASS = 'rqywx6r1yil8';
 
-// Create an authenticated proxy agent for Humana/Aetna requests
+// Create proxy agent
 const proxyAgent = new HttpsProxyAgent(`http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}`);
 
-// Middleware to fix asset links and HTML content so styles load properly
-const injectProxyFixes = {
+// Humana Proxy Route
+app.use('/humana', createProxyMiddleware({
   target: 'https://www.humana.com',
   changeOrigin: true,
   secure: false,
   agent: proxyAgent,
   pathRewrite: { '^/humana': '' },
-  onProxyReq: (proxyReq, req) => {
+  onProxyReq: (proxyReq) => {
     proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
-  },
-  onProxyRes: (proxyRes, req, res) => {
-    // Rewrite redirects and headers if necessary
-    const contentType = proxyRes.headers['content-type'] || '';
-    if (contentType.includes('text/html')) {
-      let originalWrite = res.write;
-      let originalEnd = res.end;
-      let chunks = [];
-
-      res.write = function (chunk) {
-        if (chunk) chunks.push(chunk);
-      };
-
-      res.end = function (chunk) {
-        if (chunk) chunks.push(chunk);
-        let body = Buffer.concat(chunks).toString('utf8');
-        
-        // Rewrite root-relative paths so CSS, JS, and images load through /humana/
-        body = body.replace(/href="\//g, 'href="/humana/');
-        body = body.replace(/src="\//g, 'src="/humana/');
-        body = body.replace(/action="\//g, 'action="/humana/');
-
-        res.setHeader('content-length', Buffer.byteLength(body));
-        originalEnd.call(res, body);
-      };
-    }
   }
-};
-
-app.use('/humana', createProxyMiddleware(injectProxyFixes));
+}));
 
 // Main Dashboard UI
 app.get('/', (req, res) => {
@@ -88,5 +60,5 @@ app.get('/', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Proxy server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
