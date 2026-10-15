@@ -1,31 +1,59 @@
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 
 const app = express();
 
-// 1. Humana Proxy Route
-app.use('/humana', createProxyMiddleware({
+// Your Private Proxy configuration
+const PROXY_HOST = '198.23.243.226';
+const PROXY_PORT = 6361;
+const PROXY_USER = 'lswyimcd';
+const PROXY_PASS = 'rqywx6r1yil8';
+
+// Create an authenticated proxy agent for Humana/Aetna requests
+const proxyAgent = new HttpsProxyAgent(`http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}`);
+
+// Middleware to fix asset links and HTML content so styles load properly
+const injectProxyFixes = {
   target: 'https://www.humana.com',
   changeOrigin: true,
   secure: false,
+  agent: proxyAgent,
   pathRewrite: { '^/humana': '' },
-  onProxyReq: (proxyReq) => {
+  onProxyReq: (proxyReq, req) => {
     proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
-  }
-}));
+  },
+  onProxyRes: (proxyRes, req, res) => {
+    // Rewrite redirects and headers if necessary
+    const contentType = proxyRes.headers['content-type'] || '';
+    if (contentType.includes('text/html')) {
+      let originalWrite = res.write;
+      let originalEnd = res.end;
+      let chunks = [];
 
-// 2. Aetna Proxy Route
-app.use('/aetna', createProxyMiddleware({
-  target: 'https://www.aetna.com',
-  changeOrigin: true,
-  secure: false,
-  pathRewrite: { '^/aetna': '' },
-  onProxyReq: (proxyReq) => {
-    proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
-  }
-}));
+      res.write = function (chunk) {
+        if (chunk) chunks.push(chunk);
+      };
 
-// 3. Main Dashboard UI
+      res.end = function (chunk) {
+        if (chunk) chunks.push(chunk);
+        let body = Buffer.concat(chunks).toString('utf8');
+        
+        // Rewrite root-relative paths so CSS, JS, and images load through /humana/
+        body = body.replace(/href="\//g, 'href="/humana/');
+        body = body.replace(/src="\//g, 'src="/humana/');
+        body = body.replace(/action="\//g, 'action="/humana/');
+
+        res.setHeader('content-length', Buffer.byteLength(body));
+        originalEnd.call(res, body);
+      };
+    }
+  }
+};
+
+app.use('/humana', createProxyMiddleware(injectProxyFixes));
+
+// Main Dashboard UI
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -43,8 +71,6 @@ app.get('/', (req, res) => {
             .btn { display: block; width: 100%; padding: 14px; margin-bottom: 12px; border-radius: 8px; font-size: 16px; font-weight: 600; text-decoration: none; color: white; cursor: pointer; }
             .humana { background-color: #4b830d; }
             .humana:hover { background-color: #3b680a; }
-            .aetna { background-color: #d22630; }
-            .aetna:hover { background-color: #ad1c24; }
             .secure { font-size: 12px; color: #9ca3af; margin-top: 15px; }
         </style>
     </head>
@@ -52,11 +78,8 @@ app.get('/', (req, res) => {
         <div class="card">
             <h1>Agent Portal Gateway</h1>
             <p>Select a portal below to launch:</p>
-
             <a class="btn humana" href="/humana">Open Humana Portal</a>
-            <a class="btn aetna" href="/aetna">Open Aetna Portal</a>
-
-            <div class="secure">🔒 Secure Express Gateway</div>
+            <div class="secure">🔒 Secured via Private US Proxy</div>
         </div>
     </body>
     </html>
@@ -65,5 +88,5 @@ app.get('/', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server is running smoothly on port ${PORT}`);
+  console.log(`Proxy server running on port ${PORT}`);
 });
